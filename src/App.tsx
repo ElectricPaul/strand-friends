@@ -1,17 +1,86 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import _ from 'lodash';
 import * as d3 from 'd3';
 
+// Define interfaces for type safety
+interface ConnectionScores {
+  communication: number;
+  reliability: number;
+  emotional: number;
+  shared: number;
+  support: number;
+}
+
+interface ConnectionType {
+  id: number;
+  name: string;
+  strength: number;
+  lastContact: Date;
+  halfLife: number;
+  scores: ConnectionScores;
+}
+
+interface ActivityType {
+  id: number;
+  connectionId: number;
+  type: string;
+  points: number;
+  date: Date;
+  notes: string;
+}
+
+interface ConnectionLevel {
+  level: number;
+  label: string;
+  badge: string;
+}
+
+interface NodeType extends d3.SimulationNodeDatum {
+  id: string;
+  name: string;
+  strength?: number;
+  level?: number;
+  original?: ConnectionType;
+  halfLife?: number;
+  lastContact?: number;
+  fixed?: boolean;
+  x?: number;
+  y?: number;
+  fx?: number | null;
+  fy?: number | null;
+  source?: any;
+  target?: any;
+  index?: number;
+}
+
+interface LinkType extends d3.SimulationLinkDatum<NodeType> {
+  source: string | NodeType;
+  target: string | NodeType;
+  strength: number;
+}
+
 // Network graph visualization component
-const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection, getCurrentStrength, getConnectionLevel }) => {
+const NetworkGraph = ({ 
+  connections, 
+  selectedConnectionId, 
+  setSelectedConnection, 
+  getCurrentStrength, 
+  getConnectionLevel 
+}: { 
+  connections: ConnectionType[]; 
+  selectedConnectionId: number | null; 
+  setSelectedConnection: (connection: ConnectionType) => void; 
+  getCurrentStrength: (connection: ConnectionType) => number; 
+  getConnectionLevel: (strength: number) => ConnectionLevel;
+}) => {
   // Function to calculate days since last contact
-  const getDaysSinceContact = (lastContact) => {
+  const getDaysSinceContact = (lastContact: Date): number => {
     const now = new Date();
-    const diffTime = Math.abs(now - lastContact);
+    const diffTime = Math.abs(now.getTime() - lastContact.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
-  const svgRef = useRef(null);
-  const containerRef = useRef(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
@@ -90,9 +159,9 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
     glowMerge.append("feMergeNode").attr("in", "SourceGraphic");
     
     // Prepare graph data
-    const nodes = [
+    const nodes: NodeType[] = [
       { id: 'center', name: 'YOU', fixed: true, x: width / 2, y: height / 2 },
-      ...connections.map(conn => {
+      ...connections.map((conn: ConnectionType) => {
         const strength = getCurrentStrength(conn);
         return {
           id: conn.id.toString(),
@@ -101,12 +170,16 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
           level: getConnectionLevel(strength).level,
           original: conn,
           halfLife: conn.halfLife,
-          lastContact: getDaysSinceContact(conn.lastContact)
+          lastContact: getDaysSinceContact(conn.lastContact),
+          x: 0,
+          y: 0,
+          fx: null,
+          fy: null
         };
       })
     ];
     
-    const links = connections.map(conn => {
+    const links = connections.map((conn: ConnectionType) => {
       const strength = getCurrentStrength(conn);
       return {
         source: 'center',
@@ -116,8 +189,8 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
     });
     
     // Create simulation
-    const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id(d => d.id).distance(d => 200 - d.strength))
+    const simulation = d3.forceSimulation<NodeType, LinkType>(nodes)
+      .force("link", d3.forceLink<NodeType, LinkType>(links).id(d => d.id).distance(d => 200 - (d.strength || 0)))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide().radius(40));
@@ -169,7 +242,7 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
       .data(links)
       .enter()
       .append("line")
-      .attr("stroke", d => {
+      .attr("stroke", (d: LinkType) => {
         const strength = d.strength;
         if (strength < 15) return "rgba(136, 51, 51, 0.6)"; // Dormant
         if (strength < 30) return "rgba(102, 102, 255, 0.6)"; // Acquaintance
@@ -177,16 +250,16 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
         if (strength < 100) return "rgba(0, 221, 255, 0.6)"; // Close Friend
         return "rgba(0, 255, 255, 0.6)"; // Inner Circle
       })
-      .attr("stroke-width", d => Math.max(1, d.strength / 20))
+      .attr("stroke-width", (d: LinkType) => Math.max(1, d.strength / 20))
       .attr("stroke-opacity", 0.6)
-      .attr("stroke-dasharray", d => d.strength < 15 ? "4,4" : "none")
+      .attr("stroke-dasharray", (d: LinkType) => d.strength < 15 ? "4,4" : "none")
       .attr("filter", "url(#glow)");
     
     // Add link labels for stronger connections
     const linkLabels = svg.append("g")
       .attr("class", "link-labels")
       .selectAll("text")
-      .data(links.filter(d => d.strength >= 60))
+      .data(links.filter((d: LinkType) => d.strength >= 60))
       .enter()
       .append("text")
       .attr("font-size", 9)
@@ -194,7 +267,7 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "middle")
       .attr("font-family", "monospace")
-      .text(d => Math.round(d.strength).toString());
+      .text((d: LinkType) => Math.round(d.strength).toString());
     
     // Create the node container elements
     const nodeGroups = svg.append("g")
@@ -209,18 +282,18 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
         if (d.id === selectedConnectionId?.toString()) return "url(#glow)";
         return "none";
       })
-      .on("click", (event, d) => {
-        if (d.id !== 'center') {
+      .on("click", (_event, d: NodeType) => {
+        if (d.id !== 'center' && d.original) {
           setSelectedConnection(d.original);
         }
       })
-      .call(d3.drag()
+      .call(d3.drag<any, any>()
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended));
     
     // Function to create angular nodes (octagon path)
-    const createOctagonPath = (radius) => {
+    const createOctagonPath = (radius: number): string => {
       const points = [];
       for (let i = 0; i < 8; i++) {
         const angle = (i * Math.PI) / 4;
@@ -228,11 +301,11 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
         const y = radius * Math.sin(angle);
         points.push([x, y]);
       }
-      return d3.line()(points) + "Z";
+      return d3.line<[number, number]>()(points as Array<[number, number]>) + "Z";
     };
     
     // Add octagonal nodes with Death Stranding style
-    nodeGroups.each(function(d) {
+    nodeGroups.each(function(d: NodeType) {
       const nodeGroup = d3.select(this);
       const radius = d.id === 'center' ? 30 : 20 + (d.level || 0) * 2;
       const isSelected = d.id === selectedConnectionId?.toString();
@@ -312,38 +385,40 @@ const NetworkGraph = ({ connections, selectedConnectionId, setSelectedConnection
     // Update positions on each tick
     simulation.on("tick", () => {
       // Fix center node position
-      nodes[0].x = width / 2;
-      nodes[0].y = height / 2;
+      if (nodes[0]) {
+        nodes[0].x = width / 2;
+        nodes[0].y = height / 2;
+      }
       
       link
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+        .attr("x1", (d: any) => d.source.x || 0)
+        .attr("y1", (d: any) => d.source.y || 0)
+        .attr("x2", (d: any) => d.target.x || 0)
+        .attr("y2", (d: any) => d.target.y || 0);
       
       linkLabels
-        .attr("x", d => (d.source.x + d.target.x) / 2)
-        .attr("y", d => (d.source.y + d.target.y) / 2);
+        .attr("x", (d: any) => ((d.source.x || 0) + (d.target.x || 0)) / 2)
+        .attr("y", (d: any) => ((d.source.y || 0) + (d.target.y || 0)) / 2);
       
       nodeGroups
-        .attr("transform", d => `translate(${d.x},${d.y})`);
+        .attr("transform", (d: any) => `translate(${d.x || 0},${d.y || 0})`);
     });
     
     // Drag functions
-    function dragstarted(event, d) {
+    function dragstarted(event: any, d: NodeType) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
-      d.fx = d.x;
-      d.fy = d.y;
+      d.fx = d.x || 0;
+      d.fy = d.y || 0;
     }
     
-    function dragged(event, d) {
+    function dragged(event: any, d: NodeType) {
       if (d.id !== 'center') { // Prevent dragging the center node
-        d.fx = event.x;
-        d.fy = event.y;
+        d.fx = event.x || 0;
+        d.fy = event.y || 0;
       }
     }
     
-    function dragended(event, d) {
+    function dragended(event: any, d: NodeType) {
       if (!event.active) simulation.alphaTarget(0);
       if (d.id !== 'center') {
         d.fx = null;
@@ -455,7 +530,19 @@ const holographicAnimations = `
 `;
 
 // Timefall Forecast component
-const TimefallForecast = ({ connections, getCurrentStrength, getProjectedStrength, getDaysUntilThreshold, getConnectionLevel }) => {
+const TimefallForecast = ({ 
+  connections, 
+  getCurrentStrength, 
+  getProjectedStrength, 
+  getDaysUntilThreshold, 
+  getConnectionLevel 
+}: { 
+  connections: ConnectionType[];
+  getCurrentStrength: (connection: ConnectionType) => number;
+  getProjectedStrength: (connection: ConnectionType, daysInFuture: number) => number;
+  getDaysUntilThreshold: (connection: ConnectionType, threshold: number) => number;
+  getConnectionLevel: (strength: number) => ConnectionLevel;
+}) => {
   const forecastDays = [7, 14, 30, 60, 90]; // Forecast time periods
   const thresholds = [
     { value: 15, label: 'Dormant', color: '#FF5555' },
@@ -711,9 +798,9 @@ const TimefallForecast = ({ connections, getCurrentStrength, getProjectedStrengt
 // Main application component
 const StrandSystem = () => {
   // State management
-  const [connections, setConnections] = useState([]);
-  const [selectedConnection, setSelectedConnection] = useState(null);
-  const [activities, setActivities] = useState([]);
+  const [connections, setConnections] = useState<ConnectionType[]>([]);
+  const [selectedConnection, setSelectedConnection] = useState<ConnectionType | null>(null);
+  const [activities, setActivities] = useState<ActivityType[]>([]);
   const [statsView, setStatsView] = useState('network'); // 'network', 'star-chart', 'interaction-log', 'timefall-forecast'
   const [showAddConnectionModal, setShowAddConnectionModal] = useState(false);
   const [newConnection, setNewConnection] = useState({
@@ -757,7 +844,7 @@ const StrandSystem = () => {
   }, []);
 
   // Calculate connection level based on strength
-  const getConnectionLevel = (strength) => {
+  const getConnectionLevel = (strength: number): ConnectionLevel => {
     if (strength < 15) return { level: 0, label: 'Dormant', badge: '✖️' };
     if (strength < 30) return { level: 1, label: 'Acquaintance', badge: '★' };
     if (strength < 60) return { level: 2, label: 'Friend', badge: '★★' };
@@ -766,26 +853,26 @@ const StrandSystem = () => {
   };
 
   // Calculate days since last contact
-  const getDaysSinceContact = (lastContact) => {
+  const getDaysSinceContact = (lastContact: Date): number => {
     const now = new Date();
-    const diffTime = Math.abs(now - lastContact);
+    const diffTime = Math.abs(now.getTime() - lastContact.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
   // Calculate current strength after decay
-  const getCurrentStrength = (connection) => {
+  const getCurrentStrength = (connection: ConnectionType): number => {
     const daysPassed = getDaysSinceContact(connection.lastContact);
     return connection.strength * Math.pow(0.5, daysPassed / connection.halfLife);
   };
 
   // Calculate projected strength for a future date
-  const getProjectedStrength = (connection, daysInFuture) => {
+  const getProjectedStrength = (connection: ConnectionType, daysInFuture: number): number => {
     const currentStrength = getCurrentStrength(connection);
     return currentStrength * Math.pow(0.5, daysInFuture / connection.halfLife);
   };
 
   // Predict days until connection falls below threshold
-  const getDaysUntilThreshold = (connection, threshold) => {
+  const getDaysUntilThreshold = (connection: ConnectionType, threshold: number): number => {
     const currentStrength = getCurrentStrength(connection);
     if (currentStrength <= threshold) return 0;
     
@@ -793,15 +880,15 @@ const StrandSystem = () => {
     // Solve for Δ: Δ = τ * log_0.5(S(t+Δ)/S(t))
     // For S(t+Δ) = threshold, Δ = τ * log_0.5(threshold/S(t))
     
-    const logBase = (x, base) => Math.log(x) / Math.log(base);
+    const logBase = (x: number, base: number): number => Math.log(x) / Math.log(base);
     const daysUntil = connection.halfLife * logBase(threshold / currentStrength, 0.5);
     
     return Math.ceil(daysUntil);
   };
 
   // Add new interaction
-  const addInteraction = (connectionId, type, notes = '') => {
-    const pointsMap = {
+  const addInteraction = (connectionId: number, type: string, notes = ''): void => {
+    const pointsMap: Record<string, number> = {
       'react': 1,
       'text': 3,
       'call': 8,
@@ -870,7 +957,7 @@ const StrandSystem = () => {
   };
   
   // Update new connection form field
-  const updateNewConnectionField = (field, value) => {
+  const updateNewConnectionField = (field: string, value: any): void => {
     setNewConnection(prev => ({
       ...prev,
       [field]: value
@@ -878,7 +965,7 @@ const StrandSystem = () => {
   };
   
   // Update new connection score field
-  const updateNewConnectionScore = (field, value) => {
+  const updateNewConnectionScore = (field: string, value: any): void => {
     setNewConnection(prev => ({
       ...prev,
       scores: {
@@ -895,8 +982,8 @@ const StrandSystem = () => {
   const dottedSeparator = "border-dashed border-cyan-700/30 border-t my-4";
   
   // Marker elements for the DS UI style
-  const Marker = ({position = "top-left"}) => {
-    const positionClasses = {
+  const Marker = ({position = "top-left"}: {position: "top-left" | "top-right" | "bottom-left" | "bottom-right"}) => {
+    const positionClasses: Record<"top-left" | "top-right" | "bottom-left" | "bottom-right", string> = {
       "top-left": "top-0 left-0",
       "top-right": "top-0 right-0",
       "bottom-left": "bottom-0 left-0",
@@ -1843,7 +1930,7 @@ const StrandSystem = () => {
 };
 
 // Helper functions
-const getActivityEmoji = (type) => {
+const getActivityEmoji = (type: string): string => {
   switch(type) {
     case 'react': return '↩️';
     case 'text': return '💬';
@@ -1855,11 +1942,11 @@ const getActivityEmoji = (type) => {
   }
 };
 
-const formatDate = (date) => {
+const formatDate = (date: Date): string => {
   if (!date) return 'Unknown';
   
   const now = new Date();
-  const diffMs = now - date;
+  const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   
   if (diffDays === 0) {
